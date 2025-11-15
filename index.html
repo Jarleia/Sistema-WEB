@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Contador — Web Component</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+      padding: 2rem;
+      background: #fbfdff;
+      color: #0f172a;
+    }
+    main { max-width: 860px; margin: 0 auto; }
+    .demo { display:flex; gap:1rem; flex-wrap:wrap; margin-top:1rem; }
+    pre#log { background:#0b1220; color:#9ae6b4; padding:0.75rem; border-radius:6px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Componente: &lt;counter-button&gt;</h1>
+    <p>Componente customizado que mantém um contador interno. Use o atributo <code>count</code>
+       para definir o valor inicial (ex.: <code>&lt;counter-button count="5"&gt;&lt;/counter-button&gt;</code>).</p>
+
+    <section class="demo">
+      <counter-button id="c1" count="3"></counter-button>
+      <counter-button id="c2"></counter-button>
+      <counter-button id="c3" count="10"></counter-button>
+    </section>
+
+    <hr/>
+
+    <h2>Exemplo: escutando mudanças</h2>
+    <p>O componente emite um evento <code>change</code> com <code>detail.value</code> quando muda.</p>
+    <pre id="log">Aguardando alterações...</pre>
+  </main>
+
+  <script>
+    /* CounterButton Web Component
+       - Atributo: count (valor inicial)
+       - Propriedade: value (ler/escrever programaticamente)
+       - Eventos: 'change' detalhando { value }
+       - Botões: + e - (com suporte a tecla Enter/Space quando focados)
+    */
+    class CounterButton extends HTMLElement {
+      static get observedAttributes() { return ['count']; }
+
+      constructor() {
+        super();
+        this._value = 0;
+        this.attachShadow({ mode: 'open' });
+
+        // template interno (Shadow DOM)
+        this.shadowRoot.innerHTML = `
+          <style>
+            :host { display:inline-block; font-size: 14px; }
+            .card {
+              display:flex;
+              align-items:center;
+              gap:0.5rem;
+              background: #fff;
+              border: 1px solid #e6edf3;
+              padding: 0.5rem 0.75rem;
+              border-radius: 10px;
+              box-shadow: 0 1px 2px rgba(16,24,40,0.03);
+            }
+            button {
+              min-width:36px;
+              min-height:36px;
+              display:inline-grid;
+              place-items:center;
+              border-radius:8px;
+              border:1px solid #d0d7de;
+              background: #ffffff;
+              cursor: pointer;
+              font-weight:600;
+              user-select:none;
+            }
+            button:active { transform: translateY(1px); }
+            button:focus { outline: 2px solid #c7e6ff; outline-offset:2px; }
+            .value {
+              min-width:2.2rem;
+              text-align:center;
+              font-weight:700;
+              font-size:1rem;
+            }
+            .sr-only { position: absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0; }
+          </style>
+
+          <div class="card" role="group" aria-label="Contador">
+            <button part="decrement" type="button" aria-label="Diminuir">−</button>
+            <div class="value" part="value" aria-live="polite">0</div>
+            <button part="increment" type="button" aria-label="Aumentar">+</button>
+          </div>
+        `;
+
+        this._decrBtn = this.shadowRoot.querySelector('button[part="decrement"]');
+        this._incrBtn = this.shadowRoot.querySelector('button[part="increment"]');
+        this._display = this.shadowRoot.querySelector('.value');
+
+        // binds
+        this._onIncr = this._onIncr.bind(this);
+        this._onDecr = this._onDecr.bind(this);
+        this._onKey = this._onKey.bind(this);
+      }
+
+      connectedCallback() {
+        // inicializa valor a partir do atributo 'count' se presente
+        if (this.hasAttribute('count')) {
+          const v = Number(this.getAttribute('count'));
+          if (!Number.isNaN(v)) this._value = v;
+        }
+
+        this._render();
+        this._incrBtn.addEventListener('click', this._onIncr);
+        this._decrBtn.addEventListener('click', this._onDecr);
+
+        // acessibilidade: permitir Enter/Space em botões (apenas reforço; já funciona nativamente em <button>)
+        this._incrBtn.addEventListener('keydown', this._onKey);
+        this._decrBtn.addEventListener('keydown', this._onKey);
+      }
+
+      disconnectedCallback() {
+        this._incrBtn.removeEventListener('click', this._onIncr);
+        this._decrBtn.removeEventListener('click', this._onDecr);
+        this._incrBtn.removeEventListener('keydown', this._onKey);
+        this._decrBtn.removeEventListener('keydown', this._onKey);
+      }
+
+      attributeChangedCallback(name, oldVal, newVal) {
+        if (name === 'count') {
+          const v = Number(newVal);
+          if (!Number.isNaN(v)) {
+            this._value = v;
+            this._render();
+            // não disparamos change aqui para alterações externas via atributo (opcional)
+          }
+        }
+      }
+
+      // Getter/Setter programático
+      get value() { return this._value; }
+      set value(v) {
+        const n = Number(v);
+        if (Number.isNaN(n)) return;
+        this._value = n;
+        this._render();
+        // atualiza atributo para refletir estado (opcional)
+        this.setAttribute('count', String(this._value));
+        this.dispatchEvent(new CustomEvent('change', { detail: { value: this._value } }));
+      }
+
+      // Handlers
+      _onIncr() { this.value = this._value + 1; }
+      _onDecr() { this.value = this._value - 1; }
+      _onKey(e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          e.currentTarget.click();
+        }
+      }
+
+      _render() {
+        this._display.textContent = String(this._value);
+      }
+    }
+
+    // registra o componente se ainda não estiver registrado
+    if (!customElements.get('counter-button')) {
+      customElements.define('counter-button', CounterButton);
+    }
+
+    // Demo: escutar eventos change e logar
+    document.addEventListener('DOMContentLoaded', () => {
+      const log = document.getElementById('log');
+      document.querySelectorAll('counter-button').forEach(el => {
+        el.addEventListener('change', e => {
+          log.textContent = `Componente alterado — novo valor: ${e.detail.value}`;
+        });
+      });
+
+      // exemplo programático: alterar valor do segundo componente após 2s
+      setTimeout(() => {
+        const c2 = document.getElementById('c2');
+        if (c2) c2.value = 7; // dispara evento change
+      }, 2000);
+    });
+  </script>
+</body>
+</html>
