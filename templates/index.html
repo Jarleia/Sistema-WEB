@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Contador — Web Component</title>
+  <title>Contador + Texto Reativo</title>
   <style>
     body {
       font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
@@ -14,13 +14,15 @@
     main { max-width: 860px; margin: 0 auto; }
     .demo { display:flex; gap:1rem; flex-wrap:wrap; margin-top:1rem; }
     pre#log { background:#0b1220; color:#9ae6b4; padding:0.75rem; border-radius:6px; }
+    /* estilos pequenos para o botão da demo */
+    #btnColor { padding: 0.5rem 1rem; border-radius: 6px; border: 1px solid #cbd5e1; cursor: pointer; background: #fff; }
   </style>
 </head>
 <body>
   <main>
-    <h1>Componente: &lt;counter-button&gt;</h1>
+    <h1>Componente: &lt;counter-button&gt; + Texto Reativo</h1>
     <p>Componente customizado que mantém um contador interno. Use o atributo <code>count</code>
-       para definir o valor inicial </p>
+       para definir o valor inicial.</p>
 
     <section class="demo">
       <counter-button id="c1" count="1"></counter-button>
@@ -28,18 +30,27 @@
 
     <hr/>
 
-    <h2>Exemplo: escutando mudanças</h2>
+    <h2>Exemplo: escutando mudanças do contador</h2>
     <p>O componente emite um evento <code>change</code> com <code>detail.value</code> quando muda.</p>
     <pre id="log">Aguardando alterações...</pre>
+
+    <hr/>
+
+    <h2>Texto com cor reativa (Web Component + Observable)</h2>
+    <!-- componente reativo que receberá a cor do observable -->
+    <color-text id="ct1"></color-text>
+
+    <!-- botão que alterna a cor no observable -->
+    <div style="margin-top:12px;">
+      <button id="btnColor">Alterar Cor do Texto</button>
+    </div>
+
   </main>
 
   <script>
-    /* CounterButton Web Component
-       - Atributo: count (valor inicial)
-       - Propriedade: value (ler/escrever programaticamente)
-       - Eventos: 'change' detalhando { value }
-       - Botões: + e - (com suporte a tecla Enter/Space quando focados)
-    */
+    /* --------------------------
+       Seu CounterButton Web Component (mantive o original)
+       --------------------------*/
     class CounterButton extends HTMLElement {
       static get observedAttributes() { return ['count']; }
 
@@ -48,7 +59,6 @@
         this._value = 0;
         this.attachShadow({ mode: 'open' });
 
-        // template interno (Shadow DOM)
         this.shadowRoot.innerHTML = `
           <style>
             :host { display:inline-block; font-size: 14px; }
@@ -96,14 +106,12 @@
         this._incrBtn = this.shadowRoot.querySelector('button[part="increment"]');
         this._display = this.shadowRoot.querySelector('.value');
 
-        // binds
         this._onIncr = this._onIncr.bind(this);
         this._onDecr = this._onDecr.bind(this);
         this._onKey = this._onKey.bind(this);
       }
 
       connectedCallback() {
-        // inicializa valor a partir do atributo 'count' se presente
         if (this.hasAttribute('count')) {
           const v = Number(this.getAttribute('count'));
           if (!Number.isNaN(v)) this._value = v;
@@ -112,8 +120,6 @@
         this._render();
         this._incrBtn.addEventListener('click', this._onIncr);
         this._decrBtn.addEventListener('click', this._onDecr);
-
-        // acessibilidade: permitir Enter/Space em botões (apenas reforço; já funciona nativamente em <button>)
         this._incrBtn.addEventListener('keydown', this._onKey);
         this._decrBtn.addEventListener('keydown', this._onKey);
       }
@@ -136,19 +142,16 @@
         }
       }
 
-      // Getter/Setter programático
       get value() { return this._value; }
       set value(v) {
         const n = Number(v);
         if (Number.isNaN(n)) return;
         this._value = n;
         this._render();
-        // atualiza atributo para refletir estado (opcional)
         this.setAttribute('count', String(this._value));
         this.dispatchEvent(new CustomEvent('change', { detail: { value: this._value } }));
       }
 
-      // Handlers
       _onIncr() { this.value = this._value + 1; }
       _onDecr() { this.value = this._value - 1; }
       _onKey(e) {
@@ -163,7 +166,6 @@
       }
     }
 
-    // registra o componente se ainda não estiver registrado
     if (!customElements.get('counter-button')) {
       customElements.define('counter-button', CounterButton);
     }
@@ -182,6 +184,101 @@
         const c2 = document.getElementById('c2');
         if (c2) c2.value = 7; // dispara evento change
       }, 2000);
+    });
+
+    /* ==================================================
+       OBSERVABLE SIMPLES PARA COR (JS PURO)
+       - subscribe(fn) retorna função unsubscribe
+       - setColor(newColor) notifica inscritos
+       ================================================== */
+    const colorObservable = {
+      _subscribers: [],
+      _color: "black",
+
+      subscribe(fn) {
+        // armazena o subscriber
+        this._subscribers.push(fn);
+        // envia o valor atual imediatamente
+        try { fn(this._color); } catch (err) { console.error(err); }
+        // retorna função de unsubscribe
+        return () => {
+          this._subscribers = this._subscribers.filter(s => s !== fn);
+        };
+      },
+
+      setColor(newColor) {
+        if (newColor === this._color) return;
+        this._color = newColor;
+        // notifica todos os inscritos
+        this._subscribers.forEach(fn => {
+          try { fn(newColor); } catch (err) { console.error(err); }
+        });
+      },
+
+      getColor() {
+        return this._color;
+      }
+    };
+
+    /* ==================================================
+       Web Component <color-text>
+       - estado interno _color
+       - inscreve em colorObservable em connectedCallback
+       - guarda unsubscribe e limpa em disconnectedCallback
+       ================================================== */
+    class ColorText extends HTMLElement {
+      constructor() {
+        super();
+        this._color = "black";
+        this.attachShadow({ mode: "open" });
+        this.shadowRoot.innerHTML = `
+          <style>
+            p {
+              font-size: 20px;
+              font-weight: bold;
+              transition: color 0.25s ease;
+              margin: 0;
+            }
+          </style>
+          <p>Texto reativo!</p>
+        `;
+        this._p = this.shadowRoot.querySelector("p");
+      }
+
+      connectedCallback() {
+        // subscreve e guarda a função de unsubscribe
+        this._unsubscribe = colorObservable.subscribe((newColor) => {
+          this._color = newColor;
+          this._p.style.color = this._color;
+        });
+      }
+
+      disconnectedCallback() {
+        if (typeof this._unsubscribe === "function") {
+          this._unsubscribe();
+        }
+      }
+    }
+
+    if (!customElements.get('color-text')) {
+      customElements.define('color-text', ColorText);
+    }
+
+    /* ==================================================
+       Botão que alterna a cor no observable
+       - Garante que o listener só seja adicionado após DOMContentLoaded
+       ================================================== */
+    document.addEventListener("DOMContentLoaded", () => {
+      const btn = document.getElementById("btnColor");
+      if (!btn) {
+        console.warn("Botão #btnColor não encontrado no DOM.");
+        return;
+      }
+
+      btn.addEventListener("click", () => {
+        const nova = colorObservable.getColor() === "black" ? "red" : "black";
+        colorObservable.setColor(nova);
+      });
     });
   </script>
 </body>
